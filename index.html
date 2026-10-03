@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>お宝レーダー | TreasureRadar</title>
+<meta name="description" content="スマホの磁気センサーで地中の金属反応を検知し、音とゲージで知らせる宝探し補助アプリ">
+<meta name="theme-color" content="#1a1a19">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+
+  <header class="app-header">
+    <h1>お宝レーダー<span class="app-header__en">TreasureRadar</span></h1>
+  </header>
+
+  <main class="app-main">
+
+    <section class="radar-section" aria-live="polite">
+      <div class="radar">
+        <canvas id="radarCanvas" class="radar__canvas"></canvas>
+        <div class="radar__center">
+          <div class="radar__value" id="gaugeValue">0</div>
+          <div class="radar__unit">LEVEL</div>
+        </div>
+      </div>
+      <div class="status-badge" id="statusBadge" data-status="idle">
+        <span class="status-badge__icon" id="statusIcon" aria-hidden="true">⚪</span>
+        <span class="status-badge__label" id="statusLabel">待機中</span>
+      </div>
+      <p class="radar__disclaimer">※方角はスマホのコンパス方位(推定)を利用しています。広い範囲をスイープし、輝点が中心に近づく方角を探してください。</p>
+    </section>
+
+    <section class="mode-info" id="modeInfo">
+      <p id="modeText">開始ボタンを押してセンサーを有効にしてください。</p>
+    </section>
+
+    <section class="chart-section">
+      <div class="chart-section__header">
+        <h2>磁場の推移</h2>
+        <span class="trend-indicator" id="trendIndicator" data-trend="flat">─ 変化なし</span>
+      </div>
+      <canvas id="trendCanvas" class="trend-canvas"></canvas>
+      <p class="chart-section__note">点線が基準値(キャリブレーション時の値)です。ここから大きく離れるほど金属に近い可能性があります。</p>
+    </section>
+
+    <section class="scan-guide" id="scanGuide" hidden>
+      <p class="scan-guide__hint" id="scanGuideHint">スマホを地面と水平にして、地面から10cmほど離し、ゆっくりスイープしてください。</p>
+      <div class="scan-guide__checks">
+        <span class="scan-chip" id="levelChip" data-ok="false">📐 水平</span>
+        <span class="scan-chip" id="speedChip" data-ok="false">🐢 速度</span>
+      </div>
+    </section>
+
+    <section class="controls">
+      <button id="startBtn" class="btn btn--primary" type="button">探索を開始</button>
+      <button id="calibrateBtn" class="btn" type="button" disabled>キャリブレーション</button>
+    </section>
+
+    <section class="sensor-panel" id="sensorPanel">
+      <h2>使用中のセンサー</h2>
+      <ul class="sensor-list">
+        <li class="sensor-list__item" id="sensorMag" data-state="pending">
+          <span class="sensor-list__dot"></span>地磁気センサー<span class="sensor-list__detail" id="sensorMagDetail">未初期化</span>
+        </li>
+        <li class="sensor-list__item" id="sensorMotion" data-state="pending">
+          <span class="sensor-list__dot"></span>加速度・ジャイロ(スキャン姿勢ガイド)<span class="sensor-list__detail" id="sensorMotionDetail">未初期化</span>
+        </li>
+        <li class="sensor-list__item" id="sensorBle" data-state="pending">
+          <span class="sensor-list__dot"></span>Bluetooth RSSI(参考表示)<span class="sensor-list__detail" id="sensorBleDetail">未使用</span>
+        </li>
+      </ul>
+    </section>
+
+    <section class="settings">
+      <h2>設定</h2>
+
+      <label class="setting-row">
+        <span>感度</span>
+        <input type="range" id="sensitivitySlider" min="1" max="10" value="5" step="1">
+      </label>
+
+      <label class="setting-row">
+        <span>音量</span>
+        <input type="range" id="volumeSlider" min="0" max="100" value="80" step="5">
+      </label>
+
+      <label class="setting-row setting-row--toggle">
+        <span>音でお知らせ(Bluetoothヘッドセット接続時はそちらから再生されます)</span>
+        <input type="checkbox" id="soundToggle" checked>
+      </label>
+
+      <label class="setting-row setting-row--toggle">
+        <span>Bluetooth補助スキャン(実験的・参考値)</span>
+        <input type="checkbox" id="bleToggle">
+      </label>
+    </section>
+
+    <section class="ble-panel" id="blePanel" hidden>
+      <h2>Bluetooth補助スキャン</h2>
+      <p class="ble-panel__note">周辺のBLE電波強度の揺らぎを参考表示します。金属検知の精度には寄与しません。</p>
+      <div class="ble-panel__status" id="bleStatus">未対応のブラウザです</div>
+    </section>
+
+    <details class="disclaimer">
+      <summary>このアプリについて(精度の限界をご確認ください)</summary>
+      <ul>
+        <li>Android (Chrome系) では地磁気センサーの実測値を使い、比較的信頼できる検知を行います。</li>
+        <li>iOS (Safari) はブラウザから生の磁力データを取得できないため、コンパス方位の揺らぎから簡易的に推定します。精度は大きく下がり、歩行や体の回転でも反応することがあります。</li>
+        <li>Bluetoothのスキャンは金属検知の原理としては機能しません。あくまで補助的な参考表示です。</li>
+        <li>スマホを棒の先端などに固定する場合は、取り付けた状態でキャリブレーションを行ってください。</li>
+        <li>探索中はスマホを水平に保ち、ゆっくり動かすと反応が安定します。</li>
+      </ul>
+    </details>
+
+  </main>
+</div>
+
+<script src="sensors.js"></script>
+<script src="audio.js"></script>
+<script src="chart.js"></script>
+<script src="radar.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -79,6 +79,7 @@ section { overflow: hidden; }
   .app { padding: 12px 10px calc(24px + env(safe-area-inset-bottom)); }
   section { padding: 12px; border-radius: 14px; }
   .app-header h1 { font-size: 19px; }
+  .app-header__logo { width: 32px; height: 32px; }
   .setting-row { font-size: 13px; }
   .setting-row input[type="range"] { width: 100px; }
   .btn { padding: 12px 10px; font-size: 14px; }
@@ -92,7 +93,17 @@ section { overflow: hidden; }
 
 .app-header {
   padding: 12px 0 20px;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.app-header__logo {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  flex-shrink: 0;
 }
 
 .app-header h1 {
@@ -102,6 +113,7 @@ section { overflow: hidden; }
   display: flex;
   flex-direction: column;
   gap: 2px;
+  text-align: left;
 }
 
 .app-header__en {

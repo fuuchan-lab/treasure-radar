@@ -209,7 +209,7 @@
     state.calibrationSamples = [];
     el.calibrateBtn.disabled = true;
     el.calibrateBtn.textContent = 'キャリブレーション中…';
-    el.modeText.textContent = 'スマホを静かに構え、そのまま3秒待ってください。';
+    el.modeText.textContent = 'ケースの磁石やマウントを外し、探索時と同じ持ち方で静かに構えてください。3秒間キャリブレーションします。';
 
     await new Promise((resolve) => setTimeout(resolve, 3000));
 

@@ -30,17 +30,60 @@ class MagnetometerSensorSource extends EventTarget {
         // permissions.query が magnetometer 名に対応していない環境は無視して続行
       }
     }
-    this.sensor = new window.Magnetometer({ frequency: 30 });
-    this.sensor.addEventListener('reading', () => {
-      const { x, y, z } = this.sensor;
-      const magnitude = Math.sqrt(x * x + y * y + z * z);
-      this.dispatchEvent(new CustomEvent('reading', { detail: { magnitude, raw: { x, y, z } } }));
+
+    // new Magnetometer().start() は同期的には成功したように見えても、
+    // Permissions Policy 等でブロックされていると reading が一度も来ないまま
+    // 何も起きない状態になりうる。最初の reading / error / タイムアウトの
+    // いずれかで確定するまで待ち、確実にフォールバックへ切り替えられるようにする。
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      let sensor;
+      try {
+        sensor = new window.Magnetometer({ frequency: 30 });
+      } catch (e) {
+        reject(e);
+        return;
+      }
+      this.sensor = sensor;
+
+      const timeoutId = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        try { sensor.stop(); } catch (_) { /* ignore */ }
+        reject(new Error('地磁気センサーから応答がありませんでした(タイムアウト)'));
+      }, 2000);
+
+      sensor.addEventListener('reading', () => {
+        const { x, y, z } = sensor;
+        const magnitude = Math.sqrt(x * x + y * y + z * z);
+        this.dispatchEvent(new CustomEvent('reading', { detail: { magnitude, raw: { x, y, z }, unit: 'μT', isAngular: false } }));
+        if (!settled) {
+          settled = true;
+          clearTimeout(timeoutId);
+          this.running = true;
+          resolve();
+        }
+      });
+
+      sensor.addEventListener('error', (event) => {
+        this.dispatchEvent(new CustomEvent('error', { detail: event.error }));
+        if (!settled) {
+          settled = true;
+          clearTimeout(timeoutId);
+          reject(event.error instanceof Error ? event.error : new Error((event.error && event.error.message) || 'Magnetometer error'));
+        }
+      });
+
+      try {
+        sensor.start();
+      } catch (e) {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timeoutId);
+          reject(e);
+        }
+      }
     });
-    this.sensor.addEventListener('error', (event) => {
-      this.dispatchEvent(new CustomEvent('error', { detail: event.error }));
-    });
-    this.sensor.start();
-    this.running = true;
   }
 
   stop() {
@@ -49,19 +92,43 @@ class MagnetometerSensorSource extends EventTarget {
   }
 }
 
+// 角度のベクトル平均(0/360 度のまたぎを正しく扱うための円環統計平均)
+function averageAngle(anglesDeg) {
+  let sumSin = 0;
+  let sumCos = 0;
+  for (const a of anglesDeg) {
+    const rad = (a * Math.PI) / 180;
+    sumSin += Math.sin(rad);
+    sumCos += Math.cos(rad);
+  }
+  let avg = (Math.atan2(sumSin / anglesDeg.length, sumCos / anglesDeg.length) * 180) / Math.PI;
+  if (avg < 0) avg += 360;
+  return avg;
+}
+
+// 2 つの方位角の最短差分(0-180度)
+function angleDiff(a, b) {
+  let diff = Math.abs(a - b) % 360;
+  if (diff > 180) diff = 360 - diff;
+  return diff;
+}
+
 /*
- * フォールバック: コンパス方位の揺らぎから推定 (iOS Safari / 非対応端末向け)
- * 生の磁束密度は取得できないため、短時間窓での方位角の変化量を「異常度」として扱う。
- * 歩行や体の回転でも反応するため精度は大きく劣る。
+ * フォールバック: コンパス方位から推定 (iOS Safari / 非対応端末向け)
+ * 生の磁束密度は取得できないため、「基準方位(キャリブレーション時)からの
+ * 方位のズレ」を異常度として扱う。鉄などの強磁性体に近づくとコンパスの
+ * 示す方角が基準からじわっと偏向する現象を利用している。ノイズ軽減のため
+ * 直近数サンプルを円環統計で平滑化する。歩行や体の回転でも方位が変わって
+ * しまうため精度は大きく劣る。
  */
 class CompassJitterSource extends EventTarget {
   constructor() {
     super();
     this.mode = 'compass-fallback';
-    this.label = 'コンパス揺らぎ(簡易推定)';
+    this.label = 'コンパス偏差(簡易推定)';
     this.running = false;
     this.history = [];
-    this.historySize = 8;
+    this.historySize = 4;
   }
 
   static isSupported() {
@@ -78,9 +145,26 @@ class CompassJitterSource extends EventTarget {
         throw new Error('方位センサーの利用が許可されませんでした');
       }
     }
-    this._handler = (event) => this._onOrientation(event);
-    window.addEventListener('deviceorientation', this._handler, true);
-    this.running = true;
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const timeoutId = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        this.stop();
+        reject(new Error('方位センサーから応答がありませんでした(タイムアウト)'));
+      }, 2000);
+
+      this._handler = (event) => {
+        this._onOrientation(event);
+        if (!settled) {
+          settled = true;
+          clearTimeout(timeoutId);
+          this.running = true;
+          resolve();
+        }
+      };
+      window.addEventListener('deviceorientation', this._handler, true);
+    });
   }
 
   _onOrientation(event) {
@@ -91,16 +175,11 @@ class CompassJitterSource extends EventTarget {
 
     this.history.push(heading);
     if (this.history.length > this.historySize) this.history.shift();
-    if (this.history.length < 3) return;
+    const smoothed = averageAngle(this.history);
 
-    let total = 0;
-    for (let i = 1; i < this.history.length; i++) {
-      let diff = Math.abs(this.history[i] - this.history[i - 1]);
-      if (diff > 180) diff = 360 - diff;
-      total += diff;
-    }
-    const jitter = total / (this.history.length - 1);
-    this.dispatchEvent(new CustomEvent('reading', { detail: { magnitude: jitter, raw: { heading } } }));
+    this.dispatchEvent(new CustomEvent('reading', {
+      detail: { magnitude: smoothed, raw: { heading }, unit: '°', isAngular: true }
+    }));
   }
 
   stop() {

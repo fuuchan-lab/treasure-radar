@@ -2,6 +2,8 @@
 
 スマホの地磁気センサーを使って地中の金属反応を検知し、レーダー風の画面・グラフ・音で知らせる宝探し補助 PWA(Progressive Web App)です。
 
+🔗 **公開URL: https://fuuchan-lab.github.io/treasure-radar/**(HTTPS配信のため、スマホのセンサー・Bluetooth APIが利用できます)
+
 ## 主な機能
 
 - **地磁気センサーによる金属検知**: Android (Chrome系) では Generic Sensor API (`Magnetometer`) の実測値を使用。強磁性体(鉄・ニッケルなど)による地磁気の歪みを検知します。

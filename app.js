@@ -54,8 +54,6 @@
     lastRaw: null,
     bleJitter: 0,
     heading: null,
-    isAngular: false,
-    unit: '',
   };
 
   function setSensorState(itemEl, detailEl, stateName, detailText) {
@@ -63,9 +61,9 @@
     detailEl.textContent = detailText;
   }
 
-  function formatReading(value, isAngular) {
+  function formatReading(value) {
     if (value === null || value === undefined || Number.isNaN(value)) return '—';
-    return isAngular ? `${value.toFixed(1)}°` : `${value.toFixed(1)} μT`;
+    return `${value.toFixed(1)} μT`;
   }
 
   function levelToStatus(level) {
@@ -92,35 +90,29 @@
     }
   }
 
-  function computeLevel(rawMagnitude, isAngular) {
+  function computeLevel(rawMagnitude) {
     if (state.baseline === null) return 0;
-    const deviation = isAngular
-      ? angleDiff(rawMagnitude, state.baseline)
-      : Math.abs(rawMagnitude - state.baseline);
-    const scale = isAngular
-      ? Math.max(1, (11 - state.sensitivity) * 0.8)
-      : Math.max(1, (11 - state.sensitivity) * 1.5);
+    const deviation = Math.abs(rawMagnitude - state.baseline);
+    const scale = Math.max(1, (11 - state.sensitivity) * 1.5);
     return Math.max(0, Math.min(100, (deviation / scale) * 100));
   }
 
   function onMetalReading(detail) {
     state.lastRaw = detail.magnitude;
-    state.isAngular = !!detail.isAngular;
-    state.unit = detail.unit || '';
 
     if (state.calibrating) {
       state.calibrationSamples.push(detail.magnitude);
       return;
     }
 
-    el.rawValue.textContent = formatReading(detail.magnitude, state.isAngular);
+    el.rawValue.textContent = formatReading(detail.magnitude);
 
     trendChart.push(detail.magnitude);
     const trend = trendChart.getTrend();
     el.trendIndicator.dataset.trend = trend;
     el.trendIndicator.textContent = TREND_LABELS[trend];
 
-    const level = computeLevel(detail.magnitude, state.isAngular);
+    const level = computeLevel(detail.magnitude);
     updateGauge(level);
   }
 
@@ -132,11 +124,8 @@
     });
     state.metalSensor = sensor;
 
-    const isHighPrecision = sensor.mode === 'magnetometer';
-    setSensorState(el.sensorMag, el.sensorMagDetail, 'active', isHighPrecision ? '高精度' : '簡易');
-    el.modeText.textContent = isHighPrecision
-      ? '高精度モード: 地磁気センサーの実測値を使用しています。'
-      : '簡易モード: このデバイスでは磁力センサーを取得できないため、コンパス方位の揺らぎから推定しています。精度は低めです。';
+    setSensorState(el.sensorMag, el.sensorMagDetail, 'active', '高精度');
+    el.modeText.textContent = '地磁気センサーの実測値を使用しています。';
   }
 
   async function startMotionGuide() {
@@ -215,15 +204,13 @@
 
     const samples = state.calibrationSamples;
     if (samples.length > 0) {
-      state.baseline = state.isAngular
-        ? averageAngle(samples)
-        : samples.reduce((a, b) => a + b, 0) / samples.length;
+      state.baseline = samples.reduce((a, b) => a + b, 0) / samples.length;
     } else if (state.lastRaw !== null) {
       state.baseline = state.lastRaw;
     }
     trendChart.setBaseline(state.baseline);
     radar.reset();
-    el.baselineValue.textContent = formatReading(state.baseline, state.isAngular);
+    el.baselineValue.textContent = formatReading(state.baseline);
 
     state.calibrating = false;
     el.calibrateBtn.disabled = false;
@@ -252,8 +239,8 @@
 
       await calibrate();
     } catch (e) {
-      el.modeText.textContent = `センサーを初期化できませんでした: ${e.message}`;
-      setSensorState(el.sensorMag, el.sensorMagDetail, 'unavailable', 'エラー');
+      el.modeText.textContent = e.message;
+      setSensorState(el.sensorMag, el.sensorMagDetail, 'unavailable', '利用不可');
     } finally {
       el.startBtn.disabled = false;
     }

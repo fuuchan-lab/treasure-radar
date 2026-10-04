@@ -92,119 +92,24 @@ class MagnetometerSensorSource extends EventTarget {
   }
 }
 
-// 角度のベクトル平均(0/360 度のまたぎを正しく扱うための円環統計平均)
-function averageAngle(anglesDeg) {
-  let sumSin = 0;
-  let sumCos = 0;
-  for (const a of anglesDeg) {
-    const rad = (a * Math.PI) / 180;
-    sumSin += Math.sin(rad);
-    sumCos += Math.cos(rad);
-  }
-  let avg = (Math.atan2(sumSin / anglesDeg.length, sumCos / anglesDeg.length) * 180) / Math.PI;
-  if (avg < 0) avg += 360;
-  return avg;
-}
-
-// 2 つの方位角の最短差分(0-180度)
-function angleDiff(a, b) {
-  let diff = Math.abs(a - b) % 360;
-  if (diff > 180) diff = 360 - diff;
-  return diff;
-}
-
 /*
- * フォールバック: コンパス方位から推定 (iOS Safari / 非対応端末向け)
- * 生の磁束密度は取得できないため、「基準方位(キャリブレーション時)からの
- * 方位のズレ」を異常度として扱う。鉄などの強磁性体に近づくとコンパスの
- * 示す方角が基準からじわっと偏向する現象を利用している。ノイズ軽減のため
- * 直近数サンプルを円環統計で平滑化する。歩行や体の回転でも方位が変わって
- * しまうため精度は大きく劣る。
- */
-class CompassJitterSource extends EventTarget {
-  constructor() {
-    super();
-    this.mode = 'compass-fallback';
-    this.label = 'コンパス偏差(簡易推定)';
-    this.running = false;
-    this.history = [];
-    this.historySize = 4;
-  }
-
-  static isSupported() {
-    return typeof DeviceOrientationEvent !== 'undefined';
-  }
-
-  async start() {
-    if (!CompassJitterSource.isSupported()) {
-      throw new Error('このブラウザは DeviceOrientationEvent に対応していません');
-    }
-    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-      const result = await DeviceOrientationEvent.requestPermission();
-      if (result !== 'granted') {
-        throw new Error('方位センサーの利用が許可されませんでした');
-      }
-    }
-    return new Promise((resolve, reject) => {
-      let settled = false;
-      const timeoutId = setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        this.stop();
-        reject(new Error('方位センサーから応答がありませんでした(タイムアウト)'));
-      }, 2000);
-
-      this._handler = (event) => {
-        this._onOrientation(event);
-        if (!settled) {
-          settled = true;
-          clearTimeout(timeoutId);
-          this.running = true;
-          resolve();
-        }
-      };
-      window.addEventListener('deviceorientation', this._handler, true);
-    });
-  }
-
-  _onOrientation(event) {
-    const heading = typeof event.webkitCompassHeading === 'number'
-      ? event.webkitCompassHeading
-      : event.alpha;
-    if (heading === null || heading === undefined) return;
-
-    this.history.push(heading);
-    if (this.history.length > this.historySize) this.history.shift();
-    const smoothed = averageAngle(this.history);
-
-    this.dispatchEvent(new CustomEvent('reading', {
-      detail: { magnitude: smoothed, raw: { heading }, unit: '°', isAngular: true }
-    }));
-  }
-
-  stop() {
-    if (this._handler) window.removeEventListener('deviceorientation', this._handler, true);
-    this.running = false;
-  }
-}
-
-/*
- * 金属検知の主センサーを初期化する。Magnetometer が使えればそれを、
- * 使えなければコンパス揺らぎ方式にフォールバックする。
+ * 金属検知の主センサーを初期化する。
+ *
+ * 以前はコンパス方位(deviceorientation)をフォールバックとして使っていたが、
+ * コンパス方位は「ユーザーが今スマホをどちらに向けているか」を返す値であり、
+ * ユーザーの意図的な回転操作と、近くの金属による地磁気の歪みを区別する手段が
+ * ない。実機検証の結果、基準方位からスマホの向きを変えるだけで反応が出てしまい
+ * (逆に基準方位を向けている間は常に無反応)、金属検知としては機能しないことが
+ * 確認されたため廃止した。地磁気センサー(Magnetometer API)が使えない端末・
+ * ブラウザでは、信頼できる代替手段がないため金属検知機能自体を提供しない。
  */
 async function createMetalSensor() {
-  if (MagnetometerSensorSource.isSupported()) {
-    const mag = new MagnetometerSensorSource();
-    try {
-      await mag.start();
-      return mag;
-    } catch (e) {
-      console.warn('Magnetometer を利用できませんでした。コンパス方式に切り替えます:', e.message);
-    }
+  if (!MagnetometerSensorSource.isSupported()) {
+    throw new Error('この端末・ブラウザは地磁気センサー(Magnetometer API)に対応していないため、金属検知機能を利用できません');
   }
-  const fallback = new CompassJitterSource();
-  await fallback.start();
-  return fallback;
+  const mag = new MagnetometerSensorSource();
+  await mag.start();
+  return mag;
 }
 
 /*

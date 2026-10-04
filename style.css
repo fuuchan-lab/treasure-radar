@@ -219,6 +219,11 @@ section h2 {
 }
 .mode-info p { margin: 0; }
 
+.mode-info--error {
+  color: var(--status-critical);
+  font-weight: 700;
+}
+
 /* Trend chart */
 .chart-section__header {
   display: flex;

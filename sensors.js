@@ -21,13 +21,21 @@ class MagnetometerSensorSource extends EventTarget {
       throw new Error('このブラウザは Magnetometer API に対応していません');
     }
     if (navigator.permissions) {
+      // 一部ブラウザでは permissions.query が magnetometer 名に対応しておらず
+      // Promise が解決しないまま固まることがあるため、タイムアウトを設けて
+      // 「確認できなかった」場合は null 扱いで続行する。denied だった場合のみ
+      // 明示的にエラーを投げ、この try-catch の外(呼び出し元)に伝播させる。
+      let status = null;
       try {
-        const status = await navigator.permissions.query({ name: 'magnetometer' });
-        if (status.state === 'denied') {
-          throw new Error('磁気センサーの権限が拒否されています');
-        }
+        status = await Promise.race([
+          navigator.permissions.query({ name: 'magnetometer' }),
+          new Promise((resolve) => setTimeout(() => resolve(null), 1500)),
+        ]);
       } catch (_) {
-        // permissions.query が magnetometer 名に対応していない環境は無視して続行
+        status = null;
+      }
+      if (status && status.state === 'denied') {
+        throw new Error('磁気センサーの利用がブラウザ設定で拒否されています。サイトの権限設定を確認してください。');
       }
     }
 

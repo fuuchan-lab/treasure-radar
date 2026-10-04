@@ -226,6 +226,7 @@
 
     el.startBtn.textContent = '初期化中…';
     el.startBtn.disabled = true;
+    el.modeText.classList.remove('mode-info--error');
 
     try {
       state.tone.start();
@@ -240,7 +241,11 @@
       await calibrate();
     } catch (e) {
       el.modeText.textContent = e.message;
+      el.modeText.classList.add('mode-info--error');
       setSensorState(el.sensorMag, el.sensorMagDetail, 'unavailable', '利用不可');
+      el.startBtn.textContent = '探索を開始';
+      el.startBtn.dataset.active = 'false';
+      state.running = false;
     } finally {
       el.startBtn.disabled = false;
     }
@@ -269,6 +274,7 @@
     el.calibrateBtn.disabled = true;
     el.scanGuide.hidden = true;
     el.modeText.textContent = '開始ボタンを押してセンサーを有効にしてください。';
+    el.modeText.classList.remove('mode-info--error');
     setSensorState(el.sensorMag, el.sensorMagDetail, 'pending', '未初期化');
     setSensorState(el.sensorMotion, el.sensorMotionDetail, 'pending', '未初期化');
     el.bleToggle.checked = false;

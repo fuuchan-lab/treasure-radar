@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE_NAME = 'treasure-radar-v1';
+const CACHE_NAME = 'treasure-radar-v2';
 const ASSETS = [
   './',
   './index.html',
